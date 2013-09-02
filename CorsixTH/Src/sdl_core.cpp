@@ -108,34 +108,48 @@ struct fps_ctrl
     }
 };
 
-static void l_push_utf8(lua_State *L, uint32_t iCodePoint)
+/* This function just skips the left/right prefix on the modifier keys. */
+static const char *l_get_keyname(SDL_Keycode sym)
 {
-    uint8_t aBytes[4];
-    size_t iNBytes = 1;
-    if(iCodePoint <= 0x7F)
-        aBytes[0] = static_cast<uint8_t>(iCodePoint);
-    else if(iCodePoint <= 0x7FF)
+    int skip = 0;
+    const char *keyname = SDL_GetKeyName(sym);
+
+    switch (sym)
     {
-        aBytes[0] = 0xC0 | static_cast<uint8_t>(iCodePoint >> 6);
-        aBytes[1] = 0x80 | static_cast<uint8_t>(iCodePoint & 0x3F);
-        iNBytes = 2;
+        /* TODO: LALT / RALT gets remapped to "Option" on Mac, and RGUI / LGUI
+         * get remapped to "Command" / "Windows" on Mac / Windows, respectively.
+         * A more robust solution to this is to pass and use the SDL_Keycode
+         * in Lua, instead of these OS-specifics strings (that're intended
+         * for user display). Another option is to pass the modifiers directly
+         * to the Lua app as an int mask, from SDL_Keysym.mod. This would also
+         * allow us to correctly reflect key up/down state when people press buttons,
+         * switch applic
+         *
+         */
+        case SDLK_LALT:
+        case SDLK_RALT:
+            return "Alt";
+            break;
+        case SDLK_LCTRL:
+        case SDLK_LSHIFT:
+        case SDLK_LGUI:
+            skip = strlen("Left ");
+            break;
+        case SDLK_RCTRL:
+        case SDLK_RSHIFT:
+        case SDLK_RGUI:
+            skip = strlen("Right ");
+            break;
+        default:
+            break;
     }
-    else if(iCodePoint <= 0xFFFF)
-    {
-        aBytes[0] = 0xE0 | static_cast<uint8_t>(iCodePoint >> 12);
-        aBytes[1] = 0x80 | static_cast<uint8_t>((iCodePoint >> 6) & 0x3F);
-        aBytes[2] = 0x80 | static_cast<uint8_t>(iCodePoint & 0x3F);
-        iNBytes = 3;
+    
+    if (skip <= strlen(keyname)) {
+        return keyname + skip;
+    } else {
+        fprintf(stderr, "l_get_keyname: Tried to skip %d for keyname %s (%i)\n", skip, keyname, sym);
+        return keyname;
     }
-    else
-    {
-        aBytes[0] = 0xF0 | static_cast<uint8_t>(iCodePoint >> 18);
-        aBytes[1] = 0x80 | static_cast<uint8_t>((iCodePoint >> 12) & 0x3F);
-        aBytes[2] = 0x80 | static_cast<uint8_t>((iCodePoint >> 6) & 0x3F);
-        aBytes[3] = 0x80 | static_cast<uint8_t>(iCodePoint & 0x3F);
-        iNBytes = 4;
-    }
-    lua_pushlstring(L, reinterpret_cast<char*>(aBytes), iNBytes);
 }
 
 static int l_mainloop(lua_State *L)
@@ -160,13 +174,13 @@ static int l_mainloop(lua_State *L)
                 goto leave_loop;
             case SDL_KEYDOWN:
                 lua_pushliteral(dispatcher, "keydown");
-                lua_pushstring(dispatcher, SDL_GetKeyName(e.key.keysym.sym));
+                lua_pushstring(dispatcher, l_get_keyname(e.key.keysym.sym));
                 lua_pushboolean(dispatcher, e.key.repeat != 0);
                 nargs = 3;
                 break;
             case SDL_KEYUP:
                 lua_pushliteral(dispatcher, "keyup");
-                lua_pushstring(dispatcher, SDL_GetKeyName(e.key.keysym.sym));
+                lua_pushstring(dispatcher, l_get_keyname(e.key.keysym.sym));
                 nargs = 2;
                 break;
             case SDL_MOUSEBUTTONDOWN:
